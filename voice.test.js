@@ -91,8 +91,8 @@ test('missing clues are detected so the page can restate them', () => {
 });
 
 test('the model falls back to the 32-bit build without f16 support', () => {
-  assert.equal(Voice.pickModel(Voice.MODELS[1].id, true), Voice.MODELS[1].id);
-  assert.equal(Voice.pickModel(Voice.MODELS[1].id, false), Voice.MODELS[1].f32);
+  assert.equal(Voice.pickModel(Voice.MODELS[0].id, true), Voice.MODELS[0].id);
+  assert.equal(Voice.pickModel(Voice.MODELS[0].id, false), Voice.MODELS[0].f32);
   assert.equal(Voice.pickModel('nonsense', true), Voice.MODELS[0].id);
 });
 

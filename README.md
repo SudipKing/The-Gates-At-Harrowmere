@@ -70,9 +70,9 @@ into your browser and runs it on your graphics card, so Vale replies to
 whatever you type, in his own words, and remembers the last few things you
 said to him.
 
-- **Models.** *Light* is Llama 3.2 1B (about 0.9 GB); *Sharper* is Qwen 2.5
-  1.5B (about 1.6 GB). The download happens once; later visits load the model
-  from the browser's cache and switch the voice back on by themselves.
+- **Model.** Llama 3.2 1B Instruct (about 0.9 GB). The download happens once;
+  later visits load it from the browser's cache and switch the voice back on
+  by themselves.
 - **Privacy.** The model runs on your machine through
   [WebLLM](https://github.com/mlc-ai/web-llm). Nothing you type is sent
   anywhere.

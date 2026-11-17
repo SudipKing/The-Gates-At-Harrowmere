@@ -18,8 +18,9 @@
   'use strict';
 
   var MODELS = [
-    { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', f32: 'Llama-3.2-1B-Instruct-q4f32_1-MLC', name: 'Light', size: 'about 0.9 GB' },
-    { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', f32: 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC', name: 'Sharper', size: 'about 1.6 GB' }
+    // Qwen 2.5 1.5B was tried as a larger option and gave rambling, off-tone
+    // replies in the same test where this model stayed short and in voice.
+    { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', f32: 'Llama-3.2-1B-Instruct-q4f32_1-MLC', name: 'Llama 3.2 1B', size: 'about 0.9 GB' }
   ];
   var HISTORY_TURNS = 4;
   var MAX_SENTENCES = 3;

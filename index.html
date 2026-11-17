@@ -706,7 +706,7 @@
     btn.textContent = voice.state === 'ready' ? 'Use set lines' : voice.state === 'loading' ? 'Loading\u2026' : 'Let Vale speak freely';
     btn.disabled = voice.state === 'loading' || voice.state === 'unsupported';
     sel.disabled = voice.state === 'loading' || voice.state === 'ready';
-    sel.hidden = voice.state === 'unsupported' || MOCK;
+    sel.hidden = voice.state === 'unsupported' || MOCK || ValeVoice.MODELS.length < 2;
     bar.hidden = voice.state !== 'loading';
     bar.querySelector('i').style.width = Math.round(voice.pct * 100) + '%';
   }
@@ -757,7 +757,7 @@
     try { voice.engine && voice.engine.unload(); } catch (e) {}
     voice.engine = null; voice.loaded = null; voice.on = false;
     voice.state = 'error';
-    voice.error = 'The graphics card stopped running it, which usually means it ran out of memory. Try again, or pick the Light model.';
+    voice.error = 'The graphics card stopped running it, which usually means it ran out of memory. Reload the page to try again.';
     showVoice();
   }
 
