@@ -219,6 +219,23 @@
   .know .empty { color: var(--ink-soft); } .know .empty::before { display: none; }
   .again { margin-top: 18px; }
 
+  /* ---------- Vale's voice ---------- */
+  .voice-note { font-family: var(--mono); font-size: .7rem; line-height: 1.5; color: var(--ink-soft); margin: 0 0 8px; }
+  .voice-note strong { font-weight: 500; color: var(--ink); }
+  .voice-note[data-state="ready"] strong { color: var(--verdigris); }
+  .voice-note[data-state="error"] strong, .voice-note[data-state="unsupported"] strong { color: var(--rubric); }
+  .voice-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .voice-controls select {
+    font-family: var(--mono); font-size: .72rem; color: var(--ink); background: rgba(255, 250, 235, .45);
+    border: 1px solid var(--ink-soft); border-radius: 2px; padding: 3px 4px;
+  }
+  .voice-controls .again { margin-top: 0; }
+  .voice-bar { height: 8px; margin-top: 8px; border: 1px solid var(--ink); background: rgba(92, 75, 58, .15); }
+  .voice-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--gold), var(--rubric)); transition: width .3s; }
+  #log .speech .said:empty::before { content: "\2026"; display: inline-block; animation: mull 1.1s infinite ease-in-out; }
+  #log .speech.streaming .said:not(:empty)::after { content: "\258D"; color: var(--rubric); animation: mull .8s infinite steps(2); }
+  @keyframes mull { 50% { opacity: .25; } }
+
   /* ---------- item inspection ---------- */
   dialog {
     width: min(560px, calc(100vw - 32px)); padding: 20px 22px; color: var(--ink); background: var(--vellum);
@@ -392,6 +409,14 @@
     <h2>You know</h2>
     <ul class="know" id="know"></ul>
 
+    <h2>Vale&rsquo;s voice</h2>
+    <p class="voice-note" id="voiceNote"></p>
+    <div class="voice-controls">
+      <select id="voiceModel" aria-label="Model to download"></select>
+      <button class="again" id="voiceToggle" type="button"></button>
+    </div>
+    <div class="voice-bar" id="voiceBar" hidden><i></i></div>
+
     <button class="again" id="again" type="button">Start again</button>
   </aside>
 </div>
@@ -409,13 +434,14 @@
 </dialog>
 
 <script src="game.js"></script>
+<script src="voice.js"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var log = $('log'), input = $('say'), scene = $('scene'), folio = $('folio'), dialog = $('inspect');
   var SPEAKERS = { vale: 'Sergeant Vale', clerk: 'The clerk', steward: 'The steward', scrivener: 'The scrivener', tavern: 'A guard, off duty', peddler: 'The peddler' };
   var TIER_NAMES = { low: 'Low', medium: 'Medium', high: 'High' };
-  var state, first;
+  var state, first, busy = false, turnId = 0, history = [];
 
   // ---- text ----
   function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -430,6 +456,7 @@
     p.style.animationDelay = (i || 0) * 110 + 'ms';
     p.innerHTML = (speech ? '<span class="who">' + SPEAKERS[line.who] + '</span>' : '') + rich(line.text);
     log.appendChild(p);
+    return p;
   }
 
   // ---- effects ----
@@ -509,14 +536,69 @@
 
   function attempt(text) {
     text = text.trim();
-    if (!text || state.over) return;
+    if (!text || state.over || busy) return;
     print({ who: 'you', text: text }, 0);
     var result = Gate.act(state, text);
-    result.lines.forEach(function (l, i) { print(l, i + 1); });
     render();
     effects(result.fx);
+    if (voice.on && ValeVoice.shouldVoice(result)) { voiced(text, result); return; }
+    result.lines.forEach(function (l, i) { print(l, i + 1); });
+    finish();
+  }
+
+  function finish() {
     log.scrollTop = log.scrollHeight;
     if (!state.over) input.focus();
+  }
+
+  // Vale's lines are spoken by the model; narration and mechanics stay the engine's.
+  async function voiced(text, result) {
+    var turn = ++turnId;
+    var idx = ValeVoice.valeIndices(result), at = idx[0], k = 1;
+    setBusy(true);
+    result.lines.slice(0, at).forEach(function (l) { print(l, k++); });
+    var p = print({ who: 'vale', text: '' }, k);
+    var said = document.createElement('span');
+    said.className = 'said';
+    p.appendChild(said);
+    p.classList.add('streaming');
+    log.scrollTop = log.scrollHeight;
+
+    var reply = '', why = '';
+    try {
+      var messages = ValeVoice.buildMessages(text, result, Gate.view(state), history);
+      reply = ValeVoice.clean(await voice.say(messages, function (partial) {
+        if (turn !== turnId) return;
+        said.textContent = ValeVoice.clean(partial);
+        log.scrollTop = log.scrollHeight;
+      }));
+    } catch (e) { why = e && e.message || String(e); }
+    if (turn !== turnId) return; // the game was restarted mid-reply
+    if (why && /disposed|not loaded|device (was )?lost|GPUDevice/i.test(why)) voiceLost();
+
+    var verdict = why ? { ok: false, reason: why } : ValeVoice.check(reply, result);
+    p.classList.remove('streaming');
+    if (verdict.ok) {
+      said.textContent = reply;
+      history.push({ input: text, reply: reply });
+    } else {
+      if (window.console) console.info('Vale fell back to his set lines:', verdict.reason, reply);
+      said.innerHTML = idx.map(function (i) { return rich(result.lines[i].text); }).join(' ');
+    }
+    result.lines.forEach(function (l, i) { if (i > at && l.who !== 'vale') print(l, 0); });
+    if (verdict.ok) {
+      ValeVoice.missingClues(reply, result).forEach(function (c) { print({ who: 'sys', text: 'His meaning: [[c:' + c + ']].' }, 0); });
+    }
+    setBusy(false);
+    render();
+    finish();
+  }
+
+  function setBusy(on) {
+    busy = on;
+    input.disabled = on || !!state.over;
+    if (on) input.placeholder = 'Vale is answering\u2026';
+    Array.prototype.forEach.call($('chips').querySelectorAll('button'), function (b) { b.disabled = on; });
   }
 
   // ---- item inspection ----
@@ -586,6 +668,9 @@
 
   // ---- start ----
   function start() {
+    turnId++;
+    if (busy) { voice.interrupt(); setBusy(false); }
+    history = [];
     state = Gate.createState();
     first = true;
     log.innerHTML = '';
@@ -593,6 +678,138 @@
     Gate.intro().forEach(function (l, i) { print(l, i * 3); });
     render();
   }
+  // ---- Vale's voice: a small model running in this browser ----
+  var LIB = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.87/+esm';
+  var PREF = 'harrowmere.voice';
+  var REPLY_TIMEOUT_MS = 30000;
+  var MOCK = /[?&]voice=mock\b/.test(location.search);
+  var voice = { on: false, engine: null, loaded: null, state: 'off', pct: 0, error: '' };
+
+  function pref(v) {
+    try { if (v === undefined) return localStorage.getItem(PREF); if (v) localStorage.setItem(PREF, v); else localStorage.removeItem(PREF); }
+    catch (e) { return null; }
+  }
+
+  function showVoice() {
+    var note = $('voiceNote'), btn = $('voiceToggle'), sel = $('voiceModel'), bar = $('voiceBar');
+    var model = ValeVoice.MODELS.filter(function (m) { return m.id === sel.value; })[0] || ValeVoice.MODELS[0];
+    var text = {
+      off: '<strong>Scripted.</strong> Vale answers with set lines. Free speech downloads a small language model (' + model.size + ') into this browser once; it runs on your machine and nothing you type is sent anywhere.',
+      loading: '<strong>Downloading Vale\u2019s voice\u2026 ' + Math.round(voice.pct * 100) + '%</strong> You can keep playing with set lines meanwhile. Later visits load it from this browser\u2019s cache.',
+      ready: '<strong>Free-speaking.</strong> Vale answers what you type, in his own words. The rules still decide whether you pass.',
+      paused: '<strong>Scripted.</strong> The model is loaded; turn it back on any time.',
+      unsupported: '<strong>Not available here.</strong> Running the model needs WebGPU: a recent Chrome or Edge on a desktop or laptop.',
+      error: '<strong>Couldn\u2019t load the model.</strong> ' + esc(voice.error) + ' Vale is using his set lines.'
+    }[voice.state];
+    note.innerHTML = text;
+    note.dataset.state = voice.state;
+    btn.textContent = voice.state === 'ready' ? 'Use set lines' : voice.state === 'loading' ? 'Loading\u2026' : 'Let Vale speak freely';
+    btn.disabled = voice.state === 'loading' || voice.state === 'unsupported';
+    sel.disabled = voice.state === 'loading' || voice.state === 'ready';
+    sel.hidden = voice.state === 'unsupported' || MOCK;
+    bar.hidden = voice.state !== 'loading';
+    bar.querySelector('i').style.width = Math.round(voice.pct * 100) + '%';
+  }
+
+  async function loadVoice(choice) {
+    voice.state = 'loading'; voice.pct = 0; showVoice();
+    try {
+      if (MOCK) { voice.engine = mockEngine(); voice.loaded = 'mock'; }
+      else {
+        if (!navigator.gpu) { voice.state = 'unsupported'; return showVoice(); }
+        var adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) { voice.state = 'unsupported'; return showVoice(); }
+        var id = ValeVoice.pickModel(choice, adapter.features.has('shader-f16'));
+        var webllm = await import(LIB);
+        var progress = function (r) { voice.pct = r.progress || 0; showVoice(); };
+        // Small prefill chunks keep each GPU job short, so integrated graphics
+        // are less likely to time out and reset mid-reply.
+        var opts = { prefill_chunk_size: 128, context_window_size: 2048 };
+        if (!voice.engine) voice.engine = await webllm.CreateMLCEngine(id, { initProgressCallback: progress }, opts);
+        else if (voice.loaded !== id) await voice.engine.reload(id, opts);
+        voice.loaded = id;
+      }
+      voice.on = true; voice.state = 'ready';
+      pref(choice);
+    } catch (e) {
+      voice.on = false; voice.state = 'error';
+      voice.error = (e && e.message || String(e)).slice(0, 160);
+    }
+    showVoice();
+  }
+
+  voice.say = async function (messages, onPartial) {
+    var engine = voice.engine, acc = '', timedOut = false;
+    var timer = setTimeout(function () { timedOut = true; engine.interruptGenerate(); }, REPLY_TIMEOUT_MS);
+    try {
+      var stream = await engine.chat.completions.create({ messages: messages, stream: true, temperature: 0.8, max_tokens: 110 });
+      for await (var chunk of stream) {
+        var d = chunk.choices && chunk.choices[0] && chunk.choices[0].delta;
+        acc += (d && d.content) || '';
+        onPartial(acc);
+      }
+    } finally { clearTimeout(timer); }
+    if (timedOut) throw new Error('reply took too long');
+    return acc;
+  };
+  // The graphics card dropped the model (out of memory, driver reset, etc.).
+  function voiceLost() {
+    try { voice.engine && voice.engine.unload(); } catch (e) {}
+    voice.engine = null; voice.loaded = null; voice.on = false;
+    voice.state = 'error';
+    voice.error = 'The graphics card stopped running it, which usually means it ran out of memory. Try again, or pick the Light model.';
+    showVoice();
+  }
+
+  voice.interrupt = function () { try { voice.engine && voice.engine.interruptGenerate(); } catch (e) {} };
+
+  // ?voice=mock: a stand-in model for testing the page without a download.
+  function mockEngine() {
+    var stop = false;
+    return {
+      interruptGenerate: function () { stop = true; },
+      chat: { completions: { create: async function (req) {
+        stop = false;
+        var card = req.messages[req.messages.length - 1].content;
+        var said = (card.match(/^TRAVELLER: (.*)$/m) || [])[1] || '';
+        var reply = /let me in/i.test(said) ? 'Vale: Go on through, then.'
+          : 'Vale: You said \u201c' + said.slice(0, 60) + '\u201d. I heard every word of it. *He does not move.* Still no.';
+        return (async function* () {
+          for (var i = 0; i < reply.length && !stop; i += 6) {
+            await new Promise(function (r) { setTimeout(r, 25); });
+            yield { choices: [{ delta: { content: reply.slice(i, i + 6) } }] };
+          }
+        })();
+      } } }
+    };
+  }
+
+  (function setupVoice() {
+    var sel = $('voiceModel');
+    ValeVoice.MODELS.forEach(function (m) {
+      var o = document.createElement('option');
+      o.value = m.id; o.textContent = m.name + ', ' + m.size;
+      sel.appendChild(o);
+    });
+    var saved = pref();
+    if (saved) sel.value = saved;
+    sel.addEventListener('change', showVoice);
+    $('voiceToggle').addEventListener('click', function () {
+      if (voice.state === 'ready') { voice.on = false; voice.state = 'paused'; pref(''); return showVoice(); }
+      loadVoice(sel.value);
+    });
+    if (!MOCK && !navigator.gpu) voice.state = 'unsupported';
+    showVoice();
+    // Turn the voice back on automatically only if the model is already cached.
+    if (saved && voice.state === 'off' && !MOCK) {
+      import(LIB).then(function (webllm) {
+        return navigator.gpu.requestAdapter().then(function (a) {
+          return a && webllm.hasModelInCache(ValeVoice.pickModel(saved, a.features.has('shader-f16')));
+        });
+      }).then(function (cached) { if (cached) loadVoice(saved); }).catch(function () {});
+    }
+  })();
+
   $('form').addEventListener('submit', function (e) {
     e.preventDefault();
     var text = input.value;
