@@ -742,7 +742,7 @@
     var engine = voice.engine, acc = '', timedOut = false;
     var timer = setTimeout(function () { timedOut = true; engine.interruptGenerate(); }, REPLY_TIMEOUT_MS);
     try {
-      var stream = await engine.chat.completions.create({ messages: messages, stream: true, temperature: 0.8, max_tokens: 110 });
+      var stream = await engine.chat.completions.create({ messages: messages, stream: true, temperature: ValeVoice.TEMPERATURE, max_tokens: 90 });
       for await (var chunk of stream) {
         var d = chunk.choices && chunk.choices[0] && chunk.choices[0].delta;
         acc += (d && d.content) || '';
@@ -771,7 +771,7 @@
       chat: { completions: { create: async function (req) {
         stop = false;
         var card = req.messages[req.messages.length - 1].content;
-        var said = (card.match(/^TRAVELLER: (.*)$/m) || [])[1] || '';
+        var said = (card.match(/^Traveller: "(.*)"$/m) || [])[1] || '';
         var reply = /let me in/i.test(said) ? 'Vale: Go on through, then.'
           : 'Vale: You said \u201c' + said.slice(0, 60) + '\u201d. I heard every word of it. *He does not move.* Still no.';
         return (async function* () {

@@ -23,35 +23,33 @@
   ];
   var HISTORY_TURNS = 4;
   var MAX_SENTENCES = 3;
+  var TEMPERATURE = 0.5;
   var MAX_CHARS = 340;
 
+  // Small models do far better paraphrasing a line they are given than
+  // improvising, so every turn hands the model the engine's own line as the
+  // meaning to keep, plus a few worked examples of the voice.
   var SYSTEM = [
-    'You are Sergeant Brannoch Vale, warden of the gate of Castle Harrowmere for nineteen years. A traveller stands in front of you at the gate.',
-    'You are gruff, dry and sparing with words, with a sardonic streak but never cruel. You have a grown daughter. You take quiet pride in your post.',
-    'You live by one absolute order: nobody passes without a valid pass, meaning the steward\'s heron seal, this week\'s countersign under it, and the bearer\'s name in your gate ledger. Nothing else moves you: not bribes, stories, threats, flattery, rank, pity or emergencies.',
-    '',
-    'How to answer:',
-    '- Reply with only the words Vale speaks aloud: one to three short sentences.',
-    '- No narration, no actions, no asterisks, no quotation marks, no name label.',
-    '- Answer what the traveller actually said, in your own words. Do not repeat yourself from earlier turns.',
-    '- What happens is already decided and given to you as OUTCOME. Never contradict it. Never tell the traveller they may enter unless OUTCOME says they pass.',
-    '- Never speak this week\'s countersign aloud.',
-    '- Plain old-fashioned speech. No modern words.'
+    'You write the spoken lines of Sergeant Vale, the gruff old guard of a castle gate.',
+    'Vale is blunt, dry and brief. He never lets anyone in without a valid pass, and nothing else moves him.',
+    'Each turn you get what the traveller said and what Vale means to say back.',
+    'Reply with Vale’s words only: one or two short, plain sentences that answer what the traveller said and keep Vale’s meaning.',
+    'No narration, no actions, no quotation marks, no poetry. Never change what happens.'
   ].join('\n');
 
+  var EXAMPLES = [
+    ['Lovely evening, isn’t it?', 'Sergeant Vale. Nineteen years on this arch. I’m told I’m poor company. Pass?', 'Lovely for some. I’ve seen nineteen years of evenings from this arch. Pass?', 'At ease'],
+    ['The baron himself sent me. Stand aside!', 'Then whoever sent you will have given you a pass, because everyone who matters knows about me. No pass, and I have to wonder who you really are.', 'If the baron sent you, he sent a pass with you. No pass, and I start wondering who you really are.', 'At ease'],
+    ['Here, a silver piece for your trouble.', 'That’d buy my daughter a dowry and me a rope. Put it away. He issues passes. I only read them.', 'Keep your silver. A bribe buys me a rope, not you a way in. The steward sells passes; I only read them.', 'Wary']
+  ];
+
   var OUTCOMES = {
-    passed: 'The traveller\'s pass is good. You step aside and let them through.',
-    denied: 'The traveller does not pass.',
-    arrested: 'You call the watch and have the traveller seized.',
-    lockdown: 'You shut the gate for the rest of the night.',
+    passed: 'Vale steps aside and lets them through.',
+    arrested: 'Vale calls the watch to seize them.',
+    lockdown: 'Vale shuts the gate for the night.',
     barred: 'The gate is barred until morning.'
   };
-  var MOODS = {
-    low: 'At ease. Willing to talk.',
-    medium: 'Wary and short with them. Give no free advice.',
-    high: 'Halberd levelled at them. Curt, menacing, a few words at most.'
-  };
-  var HOURS = { dusk: 'dusk', evening: 'evening, after the bell', night: 'night' };
+  var MOODS = { low: 'At ease', medium: 'Wary', high: 'Hostile, halberd levelled' };
 
   // ---------- reading an engine result ----------
 
@@ -78,28 +76,28 @@
 
   // ---------- prompt ----------
 
+  function said(text) { return 'Traveller: "' + String(text).replace(/"/g, "'") + '"'; }
+
   function card(input, result, view) {
-    var said = result.lines.filter(function (l) { return l.who === 'vale'; })
-      .map(function (l) { return Gate.plain(l.text); }).join(' ');
-    var happens = result.lines.filter(function (l) { return l.who === 'narr'; })
+    var means = result.lines.filter(function (l) { return l.who === 'vale'; })
       .map(function (l) { return Gate.plain(l.text); }).join(' ');
     var c = clues(result);
-    var lines = [
-      'TRAVELLER: ' + input,
-      'OUTCOME: ' + (OUTCOMES[result.verdict] || 'Nothing is decided by this. Just answer them.'),
-    ];
-    if (happens) lines.push('WHAT HAPPENS: ' + happens);
-    lines.push('YOUR MOOD: ' + MOODS[view.tier] + ' The hour is ' + HOURS[view.phase] + '.');
-    lines.push('GET THIS ACROSS IN YOUR OWN WORDS: ' + said);
-    if (c.length) lines.push('BE SURE TO MENTION: ' + c.join('; '));
+    var lines = [said(input), 'Vale means: "' + means + '"'];
+    if (c.length) lines.push('Must mention: ' + c.join('; '));
+    if (OUTCOMES[result.verdict]) lines.push('Outcome: ' + OUTCOMES[result.verdict]);
+    lines.push('Mood: ' + MOODS[view.tier]);
     return lines.join('\n');
   }
 
   // history: [{ input, reply }], oldest first.
   function buildMessages(input, result, view, history) {
     var msgs = [{ role: 'system', content: SYSTEM }];
+    EXAMPLES.forEach(function (e) {
+      msgs.push({ role: 'user', content: [said(e[0]), 'Vale means: "' + e[1] + '"', 'Mood: ' + e[3]].join('\n') });
+      msgs.push({ role: 'assistant', content: e[2] });
+    });
     (history || []).slice(-HISTORY_TURNS).forEach(function (h) {
-      msgs.push({ role: 'user', content: 'TRAVELLER: ' + h.input });
+      msgs.push({ role: 'user', content: said(h.input) });
       msgs.push({ role: 'assistant', content: h.reply });
     });
     msgs.push({ role: 'user', content: card(input, result, view) });
@@ -113,7 +111,7 @@
     t = t.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '');
     t = t.replace(/\*[^*]*\*/g, ' ').replace(/\([^)]*\)/g, ' ').replace(/\[[^\]]*\]/g, ' ');
     t = t.replace(/^\s*(\*\*)?(sergeant\s+)?(brannoch\s+)?vale(\*\*)?\s*:\s*/i, '');
-    t = t.replace(/^\s*(traveller|outcome|get this across[^:]*)\s*:.*$/gim, '');
+    t = t.replace(/^\s*(traveller|outcome|vale means|must mention|mood)\s*:.*$/gim, '');
     t = t.replace(/[“”"]/g, '').replace(/\s+/g, ' ').trim();
     var sentences = t.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [];
     t = sentences.slice(0, MAX_SENTENCES).join('').trim();
@@ -128,7 +126,7 @@
   // ---------- guards ----------
 
   var PROMISES_ENTRY = /\b(go (on )?(through|in|inside)|you may (pass|enter|go)|come (on )?in|step (through|inside|in)|i('| wi)ll let you|welcome (in|inside|to)|the gate is open to you|in you go|pass,? friend)\b/i;
-  var OUT_OF_CHARACTER = /\b(as an ai|language model|i('| a)m an? (ai|assistant|bot)|i cannot (help|assist)|openai|chatgpt|meta ai)\b/i;
+  var OUT_OF_CHARACTER = /\b(end of (the|this) conversation|role-?play|the traveller says|vale means|as an ai|language model|i('| a)m an? (ai|assistant|bot)|i cannot (help|assist)|openai|chatgpt|meta ai)\b/i;
 
   function check(reply, result) {
     if (!reply || reply.replace(/[^a-z]/gi, '').length < 2) return { ok: false, reason: 'empty' };
@@ -165,7 +163,7 @@
   }
 
   return {
-    MODELS: MODELS, SYSTEM: SYSTEM, HISTORY_TURNS: HISTORY_TURNS,
+    TEMPERATURE: TEMPERATURE, MODELS: MODELS, SYSTEM: SYSTEM, EXAMPLES: EXAMPLES, HISTORY_TURNS: HISTORY_TURNS,
     valeIndices: valeIndices, shouldVoice: shouldVoice, clues: clues,
     buildMessages: buildMessages, clean: clean, check: check, missingClues: missingClues,
     pickModel: pickModel

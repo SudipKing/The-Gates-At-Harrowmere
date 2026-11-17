@@ -22,10 +22,10 @@ test('the prompt carries the player’s words, the fixed outcome, mood and clues
   const msgs = Voice.buildMessages('Here, my good man, my papers.', result, view, []);
   assert.equal(msgs[0].role, 'system');
   const card = msgs.at(-1).content;
-  assert.match(card, /TRAVELLER: Here, my good man/);
-  assert.match(card, /OUTCOME: The traveller does not pass/);
-  assert.match(card, /BE SURE TO MENTION: cracked left wing/);
-  assert.match(card, /YOUR MOOD: Wary/, 'mood is read after the turn, when he has grown suspicious');
+  assert.match(card, /Traveller: "Here, my good man/);
+  assert.match(card, /Vale means: ".*cracked left wing/);
+  assert.match(card, /Must mention: cracked left wing/);
+  assert.match(card, /Mood: Wary/, 'mood is read after the turn, when he has grown suspicious');
   assert.doesNotMatch(card, /\[\[/, 'markup is stripped');
 });
 
@@ -33,9 +33,18 @@ test('history is kept short and in order', () => {
   const { result, view } = turn('hello');
   const history = Array.from({ length: 7 }, (_, i) => ({ input: 'q' + i, reply: 'a' + i }));
   const msgs = Voice.buildMessages('hello', result, view, history);
-  assert.equal(msgs.length, 1 + Voice.HISTORY_TURNS * 2 + 1);
-  assert.equal(msgs[1].content, 'TRAVELLER: q3');
+  const shots = Voice.EXAMPLES.length * 2;
+  assert.equal(msgs.length, 1 + shots + Voice.HISTORY_TURNS * 2 + 1);
+  assert.equal(msgs[1 + shots].content, 'Traveller: "q3"');
   assert.equal(msgs.at(-2).content, 'a6');
+});
+
+test('only decisive outcomes are spelled out', () => {
+  const s = Gate.createState();
+  const card = Voice.buildMessages('x', Gate.act(s, 'attack the guard'), Gate.view(s), []).at(-1).content;
+  assert.match(card, /Outcome: Vale calls the watch/);
+  const plainCard = Voice.buildMessages('x', turn('show my pass').result, Gate.view(Gate.createState()), []).at(-1).content;
+  assert.doesNotMatch(plainCard, /Outcome:/);
 });
 
 test('mood follows the suspicion tier', () => {
@@ -44,13 +53,14 @@ test('mood follows the suspicion tier', () => {
   Gate.act(s, 'throw the smoke pot');
   const result = Gate.act(s, 'what is your name?');
   const card = Voice.buildMessages('what is your name?', result, Gate.view(s), []).at(-1).content;
-  assert.match(card, /Halberd levelled/);
+  assert.match(card, /Mood: Hostile/);
 });
 
 test('clean strips labels, actions, quotes and think tags, and caps length', () => {
   assert.equal(Voice.clean('Vale: "Pass." *He spits.*'), 'Pass.');
   assert.equal(Voice.clean('**Sergeant Vale**: No.'), 'No.');
   assert.equal(Voice.clean('<think>hmm</think>Keep walking.'), 'Keep walking.');
+  assert.equal(Voice.clean('Vale means: x\nMove along.'), 'Move along.');
   assert.equal(Voice.clean('One. Two. Three. Four. Five.'), 'One. Two. Three.');
   assert.ok(Voice.clean('word '.repeat(200)).length <= 341);
 });
@@ -61,6 +71,7 @@ test('guards reject replies that contradict the engine', () => {
   assert.equal(Voice.check('As an AI language model I cannot.', denied).ok, false);
   assert.equal(Voice.check('The word is Ashfall, lad.', denied).ok, false);
   assert.equal(Voice.check('', denied).ok, false);
+  assert.equal(Voice.check('You have reached the end of the conversation.', denied).ok, false);
   assert.equal(Voice.check('That heron has both its wings. Not the steward’s.', denied).ok, true);
 });
 
