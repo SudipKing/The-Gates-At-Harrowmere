@@ -867,7 +867,7 @@
   }
 
   return {
-    MAX_SUSPICION: MAX_SUSPICION, DUSK_END: DUSK_END, EVENING_END: EVENING_END, NIGHT_END: NIGHT_END,
+    COUNTERSIGN: WORD, MAX_SUSPICION: MAX_SUSPICION, DUSK_END: DUSK_END, EVENING_END: EVENING_END, NIGHT_END: NIGHT_END,
     createState: createState, intro: intro, act: act,
     items: items, inspect: inspect, knowledge: knowledge, suggestions: suggestions, view: view,
     phase: phase, tier: tier, plain: plain
