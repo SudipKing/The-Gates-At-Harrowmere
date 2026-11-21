@@ -424,11 +424,11 @@
 
     if (has(text, /\b(watch|observe|look|study|linger|stand)\b/)) return watch(s, r);
 
-    if (has(text, /\b(seal|countersign|ledger|check|checks|rules?|valid)\b/) || (question && !passWord)) {
-      return explainChecks(s, r);
-    }
+    var ruleWords = has(text, /\b(seal|countersign|ledger|check|checks|rules?|valid)\b/);
+    // Small talk wins over "that was a question, so explain the rules".
+    if (!ruleWords && has(text, /\b(talk|hello|greet|hail|name|evening|chat|daughter|family|wife|weather|yourself|years|life|tired|bored|lonely|job|duty)\b/)) return chat(s, r);
 
-    if (has(text, /\b(talk|hello|greet|hail|name|evening|chat|daughter)\b/)) return chat(s, r);
+    if (ruleWords || (question && !passWord)) return explainChecks(s, r);
 
     r.verdict = 'denied';
     var shrug = [
@@ -867,7 +867,7 @@
   }
 
   return {
-    MAX_SUSPICION: MAX_SUSPICION, DUSK_END: DUSK_END, EVENING_END: EVENING_END, NIGHT_END: NIGHT_END,
+    COUNTERSIGN: WORD, MAX_SUSPICION: MAX_SUSPICION, DUSK_END: DUSK_END, EVENING_END: EVENING_END, NIGHT_END: NIGHT_END,
     createState: createState, intro: intro, act: act,
     items: items, inspect: inspect, knowledge: knowledge, suggestions: suggestions, view: view,
     phase: phase, tier: tier, plain: plain
